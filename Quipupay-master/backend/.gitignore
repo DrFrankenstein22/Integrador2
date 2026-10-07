@@ -1,0 +1,24 @@
+# Compiled output
+dist/
+
+# Dependencies
+node_modules/
+
+# Prisma generated client
+node_modules/.prisma/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Coverage / build info
+coverage/
+*.tsbuildinfo
+
+# KYC media (cruda, cifrada, se purga tras la decisión)
+storage/
+
+# Logs (p.ej. si el agente de New Relic no toma logging.filepath=stdout)
+*.log
+newrelic_agent.log

@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: quipupay-postgres
+    environment:
+      POSTGRES_DB: quipupay
+      POSTGRES_USER: quipupay
+      POSTGRES_PASSWORD: quipupay
+    ports:
+      - "5432:5432"
+    volumes:
+      - quipupay_postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: quipupay-redis
+    ports:
+      - "6379:6379"
+
+  flyway:
+    image: flyway/flyway:10-alpine
+    container_name: quipupay-flyway
+    depends_on:
+      - postgres
+    volumes:
+      - ./backend/db/migration:/flyway/sql:ro
+      - ./backend/flyway.conf:/flyway/conf/flyway.conf:ro
+
+volumes:
+  quipupay_postgres_data:
+

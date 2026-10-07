@@ -1,0 +1,963 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["config", "auth", "identity", "users", "devices", "banking", "ledger", "transactions", "cards", "payments", "files", "notifications", "risk", "audit", "admin"]
+}
+
+// ─── CONFIG ──────────────────────────────────────────────
+
+model ConfigCurrency {
+  code          String   @id @db.Char(3)
+  name          String   @db.VarChar(80)
+  decimalPlaces Int      @default(2) @map("decimal_places") @db.SmallInt
+  statusCode    String   @default("ACTIVE") @map("status_code") @db.VarChar(40)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  accounts          Account[]
+  accountLimits     AccountLimit[]
+  transactions      Transaction[]
+  ledgerEntries     LedgerEntry[]
+  balanceSnapshots  AccountBalanceSnapshot[]
+  virtualCards      VirtualCard[]
+  qrPaymentRequests QrPaymentRequest[]
+
+  @@map("currencies")
+  @@schema("config")
+}
+
+model ConfigStatus {
+  domain      String   @db.VarChar(60)
+  code        String   @db.VarChar(60)
+  description String   @db.VarChar(200)
+  isTerminal  Boolean  @default(false) @map("is_terminal")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([domain, code])
+  @@map("status_catalog")
+  @@schema("config")
+}
+
+model SystemParameter {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  parameterKey   String   @unique @map("parameter_key") @db.VarChar(120)
+  parameterValue String   @map("parameter_value")
+  description    String?  @db.VarChar(240)
+  isSensitive    Boolean  @default(false) @map("is_sensitive")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("system_parameters")
+  @@schema("config")
+}
+
+// ─── USERS ───────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dni          String   @unique @db.VarChar(12)
+  phone        String   @unique @db.VarChar(20)
+  email        String?  @unique @db.Citext
+  statusDomain String   @default("USER") @map("status_domain") @db.VarChar(60)
+  statusCode   String   @default("PENDING_VERIFICATION") @map("status_code") @db.VarChar(60)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  profile                        UserProfile?
+  contacts                       UserContact[]
+  accounts                       Account[]
+  transactions                   Transaction[]
+  auditEvents                    AuditEvent[]
+  userRoles                      UserRole[]
+  refreshTokens                  RefreshToken[]
+  pinCredential                  PinCredential?
+  loginAttempts                  LoginAttempt[]
+  mfaMethods                     MfaMethod[]
+  passwordHistory                PasswordHistory[]
+  securityEvents                 SecurityEvent[]
+  identityProfile                IdentityProfile?
+  otpChallenges                  OtpChallenge[]
+  livenessChallenges             LivenessChallenge[]
+  biometricConsents              BiometricConsent[]
+  biometricEnrollments           BiometricEnrollment[]
+  livenessChecks                 LivenessCheck[]
+  biometricVerificationAttempts  BiometricVerificationAttempt[]
+  devices                        Device[]
+  deviceCredentials              DeviceCredential[]
+  deviceSessions                 DeviceSession[]
+  beneficiaries                  Beneficiary[]
+  virtualCards                   VirtualCard[]
+  notificationEvents             NotificationEvent[]
+  riskEvents                     RiskEvent[]
+  riskScores                     RiskScore[]
+  adminActions                   AdminAction[]
+  assignedRoles                  UserRole[]    @relation("AssignedBy")
+  storedObjects                  StoredObject[]
+  cardEventsCreated              CardEvent[]
+
+  @@index([statusCode, createdAt])
+  @@map("users")
+  @@schema("users")
+}
+
+model UserProfile {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @unique @map("user_id") @db.Uuid
+  firstName   String   @map("first_name") @db.VarChar(100)
+  lastName    String   @map("last_name") @db.VarChar(100)
+  birthDate   DateTime? @map("birth_date") @db.Date
+  addressLine String?  @map("address_line") @db.VarChar(240)
+  district    String?  @db.VarChar(120)
+  province    String?  @db.VarChar(120)
+  countryCode String   @default("PE") @map("country_code") @db.Char(2)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("user_profiles")
+  @@schema("users")
+}
+
+model UserContact {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  contactType  String    @map("contact_type") @db.VarChar(40)
+  contactValue String    @map("contact_value") @db.VarChar(180)
+  isPrimary    Boolean   @default(false) @map("is_primary")
+  verifiedAt   DateTime? @map("verified_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, contactType, contactValue])
+  @@map("user_contacts")
+  @@schema("users")
+}
+
+// ─── AUTH ────────────────────────────────────────────────
+
+model Role {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String   @unique @db.VarChar(40)
+  name        String   @db.VarChar(80)
+  description String?  @db.VarChar(200)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@map("roles")
+  @@schema("auth")
+}
+
+model Permission {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String   @unique @db.VarChar(80)
+  name        String   @db.VarChar(120)
+  description String?  @db.VarChar(240)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+  @@schema("auth")
+}
+
+model RolePermission {
+  roleId       String   @map("role_id") @db.Uuid
+  permissionId String   @map("permission_id") @db.Uuid
+  assignedAt   DateTime @default(now()) @map("assigned_at") @db.Timestamptz(6)
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+  @@schema("auth")
+}
+
+model UserRole {
+  userId     String   @map("user_id") @db.Uuid
+  roleId     String   @map("role_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  assignedBy String?  @map("assigned_by") @db.Uuid
+
+  user       User  @relation(fields: [userId], references: [id])
+  role       Role  @relation(fields: [roleId], references: [id])
+  assignedByUser User? @relation("AssignedBy", fields: [assignedBy], references: [id])
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+  @@schema("auth")
+}
+
+model RefreshToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  deviceId  String?   @map("device_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash") @db.VarChar(255)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user           User    @relation(fields: [userId], references: [id])
+  device         Device? @relation(fields: [deviceId], references: [id])
+  deviceSessions DeviceSession[]
+
+  @@map("refresh_tokens")
+  @@schema("auth")
+}
+
+model PinCredential {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String    @unique @map("user_id") @db.Uuid
+  pinHash        String    @map("pin_hash") @db.VarChar(255)
+  hashAlgorithm  String    @map("hash_algorithm") @db.VarChar(60)
+  failedAttempts Int       @default(0) @map("failed_attempts") @db.SmallInt
+  lockedUntil    DateTime? @map("locked_until") @db.Timestamptz(6)
+  changedAt      DateTime  @default(now()) @map("changed_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("pin_credentials")
+  @@schema("auth")
+}
+
+model LoginAttempt {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String?  @map("user_id") @db.Uuid
+  deviceId      String?  @map("device_id") @db.Uuid
+  channel       String   @db.VarChar(40)
+  result        String   @db.VarChar(40)
+  ipAddress     String?  @map("ip_address") @db.Inet
+  userAgent     String?  @map("user_agent")
+  failureReason String?  @map("failure_reason") @db.VarChar(120)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user   User?   @relation(fields: [userId], references: [id])
+  device Device? @relation(fields: [deviceId], references: [id])
+
+  @@index([userId, createdAt])
+  @@map("login_attempts")
+  @@schema("auth")
+}
+
+model MfaMethod {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  methodType   String   @map("method_type") @db.VarChar(40)
+  statusDomain String   @default("MFA_METHOD") @map("status_domain") @db.VarChar(60)
+  statusCode   String   @default("ACTIVE") @map("status_code") @db.VarChar(60)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("mfa_methods")
+  @@schema("auth")
+}
+
+model PasswordHistory {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  secretHash    String   @map("secret_hash") @db.VarChar(255)
+  hashAlgorithm String   @map("hash_algorithm") @db.VarChar(60)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("password_history")
+  @@schema("auth")
+}
+
+model SecurityEvent {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String?  @map("user_id") @db.Uuid
+  deviceId      String?  @map("device_id") @db.Uuid
+  eventType     String   @map("event_type") @db.VarChar(80)
+  severity      String   @db.VarChar(20)
+  correlationId String   @map("correlation_id") @db.Uuid
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user   User?   @relation(fields: [userId], references: [id])
+  device Device? @relation(fields: [deviceId], references: [id])
+
+  @@index([userId, createdAt])
+  @@map("security_events")
+  @@schema("auth")
+}
+
+// ─── FILES ───────────────────────────────────────────────
+
+model StoredObject {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerUserId    String?  @map("owner_user_id") @db.Uuid
+  bucket         String   @db.VarChar(120)
+  objectKey      String   @map("object_key") @db.VarChar(500)
+  objectType     String   @map("object_type") @db.VarChar(80)
+  mimeType       String   @map("mime_type") @db.VarChar(120)
+  byteSize       BigInt?  @map("byte_size")
+  checksumSha256 String?  @map("checksum_sha256") @db.VarChar(64)
+  statusDomain   String   @default("STORED_OBJECT") @map("status_domain") @db.VarChar(60)
+  statusCode     String   @default("ACTIVE") @map("status_code") @db.VarChar(60)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  owner                  User?                          @relation(fields: [ownerUserId], references: [id])
+  documentCapturesFront  DocumentCapture[]               @relation("FrontObject")
+  documentCapturesBack   DocumentCapture[]               @relation("BackObject")
+  biometricEnrollments   BiometricEnrollment[]
+  verificationAttempts   BiometricVerificationAttempt[]
+  paymentReceipts        PaymentReceipt[]
+
+  @@unique([bucket, objectKey])
+  @@index([ownerUserId, createdAt])
+  @@map("stored_objects")
+  @@schema("files")
+}
+
+// ─── IDENTITY ────────────────────────────────────────────
+
+model IdentityProfile {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String    @unique @map("user_id") @db.Uuid
+  verificationLevel String   @default("BASIC") @map("verification_level") @db.VarChar(40)
+  statusDomain      String   @default("IDENTITY") @map("status_domain") @db.VarChar(60)
+  statusCode        String   @default("PENDING") @map("status_code") @db.VarChar(60)
+  verifiedAt        DateTime? @map("verified_at") @db.Timestamptz(6)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user              User                   @relation(fields: [userId], references: [id])
+  documentCaptures  DocumentCapture[]
+  providerChecks    IdentityProviderCheck[]
+
+  @@map("identity_profiles")
+  @@schema("identity")
+}
+
+model OtpChallenge {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String?   @map("user_id") @db.Uuid
+  channel     String    @db.VarChar(30)
+  destination String    @db.VarChar(180)
+  otpHash     String    @map("otp_hash") @db.VarChar(255)
+  purpose     String    @db.VarChar(60)
+  attempts    Int       @default(0) @db.SmallInt
+  maxAttempts Int       @default(3) @map("max_attempts") @db.SmallInt
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt  DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([destination, createdAt])
+  @@map("otp_challenges")
+  @@schema("identity")
+}
+
+model KycSession {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionKey     String    @unique @map("session_key") @db.VarChar(64)
+  dni            String?   @db.VarChar(12)
+  documentResult Json?     @map("document_result")
+  selfieResult   Json?     @map("selfie_result")
+  riskResult     Json?     @map("risk_result")
+  decision       String?   @db.VarChar(30)
+  status         String    @default("STARTED") @db.VarChar(30)
+  materializedAt DateTime? @map("materialized_at") @db.Timestamptz(6)
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("kyc_sessions")
+  @@schema("identity")
+}
+
+model LivenessChallenge {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String?   @map("user_id") @db.Uuid
+  sessionKey String    @map("session_key") @db.VarChar(64)
+  script     Json
+  nonce      String    @db.VarChar(64)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([sessionKey, createdAt])
+  @@map("liveness_challenges")
+  @@schema("identity")
+}
+
+model DocumentCapture {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  identityProfileId String   @map("identity_profile_id") @db.Uuid
+  frontObjectId     String?  @map("front_object_id") @db.Uuid
+  backObjectId      String?  @map("back_object_id") @db.Uuid
+  documentType      String   @default("DNI") @map("document_type") @db.VarChar(40)
+  ocrPayload        Json?    @map("ocr_payload")
+  qualityScore      Decimal? @map("quality_score") @db.Decimal(5, 2)
+  statusDomain      String   @default("DOCUMENT_CAPTURE") @map("status_domain") @db.VarChar(60)
+  statusCode        String   @default("PENDING") @map("status_code") @db.VarChar(60)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  identityProfile IdentityProfile @relation(fields: [identityProfileId], references: [id])
+  frontObject     StoredObject?   @relation("FrontObject", fields: [frontObjectId], references: [id])
+  backObject      StoredObject?   @relation("BackObject", fields: [backObjectId], references: [id])
+
+  @@map("document_captures")
+  @@schema("identity")
+}
+
+model IdentityProviderCheck {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  identityProfileId String   @map("identity_profile_id") @db.Uuid
+  providerName      String   @map("provider_name") @db.VarChar(120)
+  providerReference String?  @map("provider_reference") @db.VarChar(180)
+  requestHash       String?  @map("request_hash") @db.VarChar(64)
+  responseSummary   Json?    @map("response_summary")
+  decision          String   @db.VarChar(60)
+  checkedAt         DateTime @default(now()) @map("checked_at") @db.Timestamptz(6)
+
+  identityProfile IdentityProfile @relation(fields: [identityProfileId], references: [id])
+
+  @@index([identityProfileId, checkedAt])
+  @@map("identity_provider_checks")
+  @@schema("identity")
+}
+
+model BiometricConsent {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  consentType   String    @map("consent_type") @db.VarChar(80)
+  policyVersion String    @map("policy_version") @db.VarChar(40)
+  grantedAt     DateTime  @default(now()) @map("granted_at") @db.Timestamptz(6)
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
+  ipAddress     String?   @map("ip_address") @db.Inet
+  userAgent     String?   @map("user_agent")
+
+  user        User                  @relation(fields: [userId], references: [id])
+  enrollments BiometricEnrollment[]
+
+  @@map("biometric_consents")
+  @@schema("identity")
+}
+
+model BiometricEnrollment {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  consentId         String   @map("consent_id") @db.Uuid
+  storedObjectId    String?  @map("stored_object_id") @db.Uuid
+  modelVersion      String   @map("model_version") @db.VarChar(80)
+  templateReference String?  @map("template_reference") @db.VarChar(180)
+  qualityScore      Decimal? @map("quality_score") @db.Decimal(5, 2)
+  statusDomain      String   @default("BIOMETRIC_ENROLLMENT") @map("status_domain") @db.VarChar(60)
+  statusCode        String   @default("ACTIVE") @map("status_code") @db.VarChar(60)
+  enrolledAt        DateTime @default(now()) @map("enrolled_at") @db.Timestamptz(6)
+
+  user         User              @relation(fields: [userId], references: [id])
+  consent      BiometricConsent  @relation(fields: [consentId], references: [id])
+  storedObject StoredObject?     @relation(fields: [storedObjectId], references: [id])
+  verificationAttempts BiometricVerificationAttempt[]
+
+  @@map("biometric_enrollments")
+  @@schema("identity")
+}
+
+model LivenessCheck {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  modelVersion  String   @map("model_version") @db.VarChar(80)
+  livenessScore Decimal  @map("liveness_score") @db.Decimal(5, 2)
+  thresholdUsed Decimal  @map("threshold_used") @db.Decimal(5, 2)
+  decision      String   @db.VarChar(60)
+  reasonCode    String?  @map("reason_code") @db.VarChar(120)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user                  User                           @relation(fields: [userId], references: [id])
+  verificationAttempts  BiometricVerificationAttempt[]
+
+  @@map("liveness_checks")
+  @@schema("identity")
+}
+
+model BiometricVerificationAttempt {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  enrollmentId    String?  @map("enrollment_id") @db.Uuid
+  livenessCheckId String?  @map("liveness_check_id") @db.Uuid
+  storedObjectId  String?  @map("stored_object_id") @db.Uuid
+  modelVersion    String   @map("model_version") @db.VarChar(80)
+  matchScore      Decimal? @map("match_score") @db.Decimal(5, 2)
+  thresholdUsed   Decimal? @map("threshold_used") @db.Decimal(5, 2)
+  decision        String   @db.VarChar(60)
+  purpose         String   @db.VarChar(80)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user          User                 @relation(fields: [userId], references: [id])
+  enrollment    BiometricEnrollment? @relation(fields: [enrollmentId], references: [id])
+  livenessCheck LivenessCheck?       @relation(fields: [livenessCheckId], references: [id])
+  storedObject  StoredObject?        @relation(fields: [storedObjectId], references: [id])
+
+  @@index([userId, createdAt])
+  @@map("biometric_verification_attempts")
+  @@schema("identity")
+}
+
+// ─── DEVICES ─────────────────────────────────────────────
+
+model Device {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                String    @map("user_id") @db.Uuid
+  deviceFingerprintHash String    @map("device_fingerprint_hash") @db.VarChar(255)
+  platform              String    @db.VarChar(40)
+  osVersion             String?   @map("os_version") @db.VarChar(80)
+  appVersion            String?   @map("app_version") @db.VarChar(40)
+  statusDomain          String    @default("DEVICE") @map("status_domain") @db.VarChar(60)
+  statusCode            String    @default("ACTIVE") @map("status_code") @db.VarChar(60)
+  registeredAt          DateTime  @default(now()) @map("registered_at") @db.Timestamptz(6)
+  lastSeenAt            DateTime? @map("last_seen_at") @db.Timestamptz(6)
+
+  user              User               @relation(fields: [userId], references: [id])
+  credentials       DeviceCredential[]
+  sessions          DeviceSession[]
+  refreshTokens     RefreshToken[]
+  loginAttempts     LoginAttempt[]
+  securityEvents    SecurityEvent[]
+
+  @@unique([userId, deviceFingerprintHash])
+  @@map("devices")
+  @@schema("devices")
+}
+
+model DeviceCredential {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deviceId     String    @map("device_id") @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  publicKey    String    @map("public_key")
+  algorithm    String    @db.VarChar(80)
+  statusDomain String   @default("DEVICE_CREDENTIAL") @map("status_domain") @db.VarChar(60)
+  statusCode   String   @default("ACTIVE") @map("status_code") @db.VarChar(60)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  device Device @relation(fields: [deviceId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@map("device_credentials")
+  @@schema("devices")
+}
+
+model DeviceSession {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deviceId       String    @map("device_id") @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  refreshTokenId String?   @map("refresh_token_id") @db.Uuid
+  ipAddress      String?   @map("ip_address") @db.Inet
+  userAgent      String?   @map("user_agent")
+  appVersion     String?   @map("app_version") @db.VarChar(40)
+  startedAt      DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  lastActivityAt DateTime  @default(now()) @map("last_activity_at") @db.Timestamptz(6)
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  device       Device        @relation(fields: [deviceId], references: [id])
+  user         User          @relation(fields: [userId], references: [id])
+  refreshToken RefreshToken? @relation(fields: [refreshTokenId], references: [id])
+
+  @@index([deviceId, lastActivityAt])
+  @@map("device_sessions")
+  @@schema("devices")
+}
+
+// ─── BANKING ─────────────────────────────────────────────
+
+model Account {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  accountNumber String    @unique @map("account_number") @db.VarChar(40)
+  currencyCode  String    @map("currency_code") @db.Char(3)
+  productCode   String    @default("AHORROS") @map("product_code") @db.VarChar(40)
+  alias         String?   @db.VarChar(120)
+  statusDomain  String    @default("ACCOUNT") @map("status_domain") @db.VarChar(60)
+  statusCode    String    @default("PENDING_ACTIVATION") @map("status_code") @db.VarChar(60)
+  openedAt      DateTime  @default(now()) @map("opened_at") @db.Timestamptz(6)
+  closedAt      DateTime? @map("closed_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user              User                     @relation(fields: [userId], references: [id])
+  currency          ConfigCurrency           @relation(fields: [currencyCode], references: [code])
+  limits            AccountLimit[]
+  ledgerEntries     LedgerEntry[]
+  balanceSnapshots  AccountBalanceSnapshot[]
+  virtualCards      VirtualCard[]
+  transfersSent     Transfer[]               @relation("SourceAccount")
+  transfersReceived Transfer[]               @relation("TargetAccount")
+  beneficiariesTarget Beneficiary[]
+
+  @@index([userId, statusCode])
+  @@index([userId, productCode])
+  @@map("accounts")
+  @@schema("banking")
+}
+
+model AccountLimit {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId    String   @map("account_id") @db.Uuid
+  limitType    String   @map("limit_type") @db.VarChar(60)
+  amount       Decimal  @db.Decimal(18, 2)
+  currencyCode String   @map("currency_code") @db.Char(3)
+  period       String   @db.VarChar(30)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account  Account        @relation(fields: [accountId], references: [id])
+  currency ConfigCurrency @relation(fields: [currencyCode], references: [code])
+
+  @@unique([accountId, limitType, period])
+  @@map("account_limits")
+  @@schema("banking")
+}
+
+model Beneficiary {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  alias           String   @db.VarChar(120)
+  targetAccountId String?  @map("target_account_id") @db.Uuid
+  targetIdentifier String? @map("target_identifier") @db.VarChar(120)
+  statusDomain    String   @default("BENEFICIARY") @map("status_domain") @db.VarChar(60)
+  statusCode      String   @default("ACTIVE") @map("status_code") @db.VarChar(60)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user          User     @relation(fields: [userId], references: [id])
+  targetAccount Account? @relation(fields: [targetAccountId], references: [id])
+
+  @@map("beneficiaries")
+  @@schema("banking")
+}
+
+// ─── TRANSACTIONS ────────────────────────────────────────
+
+model Transaction {
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                  String?   @map("user_id") @db.Uuid
+  typeCode                String    @map("type_code") @db.VarChar(60)
+  statusDomain            String    @default("TRANSACTION") @map("status_domain") @db.VarChar(60)
+  statusCode              String    @default("PENDING") @map("status_code") @db.VarChar(60)
+  amount                  Decimal   @db.Decimal(18, 2)
+  currencyCode            String    @map("currency_code") @db.Char(3)
+  reference               String?   @db.VarChar(240)
+  idempotencyKey          String?   @unique @map("idempotency_key") @db.VarChar(120)
+  reversalOfTransactionId String?   @map("reversal_of_transaction_id") @db.Uuid
+  reversedByTransactionId String?   @map("reversed_by_transaction_id") @db.Uuid
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user                 User?            @relation(fields: [userId], references: [id])
+  currency             ConfigCurrency   @relation(fields: [currencyCode], references: [code])
+  reversalOf           Transaction?     @relation("Reversal", fields: [reversalOfTransactionId], references: [id])
+  reversedBy           Transaction?     @relation("ReversedBy", fields: [reversedByTransactionId], references: [id])
+  reversalTransactions Transaction[]    @relation("Reversal")
+  reversedTransactions Transaction[]    @relation("ReversedBy")
+  ledgerEntries        LedgerEntry[]
+  transfer             Transfer?
+  idempotencyKeys      IdempotencyKey[]
+  qrPaymentRequests    QrPaymentRequest[]
+  paymentReceipt       PaymentReceipt?
+  riskEvents           RiskEvent[]
+  riskScores           RiskScore[]
+
+  @@index([userId, createdAt])
+  @@index([statusCode, createdAt])
+  @@map("transactions")
+  @@schema("transactions")
+}
+
+model Transfer {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  transactionId   String   @unique @map("transaction_id") @db.Uuid
+  sourceAccountId String   @map("source_account_id") @db.Uuid
+  targetAccountId String   @map("target_account_id") @db.Uuid
+  amount          Decimal  @db.Decimal(18, 2)
+  currencyCode    String   @map("currency_code") @db.Char(3)
+  description     String?  @db.VarChar(240)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
+  sourceAccount Account     @relation("SourceAccount", fields: [sourceAccountId], references: [id])
+  targetAccount Account     @relation("TargetAccount", fields: [targetAccountId], references: [id])
+
+  @@map("transfers")
+  @@schema("transactions")
+}
+
+model IdempotencyKey {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  idempotencyKey String    @unique @map("idempotency_key") @db.VarChar(120)
+  requestHash    String    @map("request_hash") @db.VarChar(64)
+  responseHash   String?   @map("response_hash") @db.VarChar(64)
+  transactionId  String?   @map("transaction_id") @db.Uuid
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  transaction Transaction? @relation(fields: [transactionId], references: [id])
+
+  @@map("idempotency_keys")
+  @@schema("transactions")
+}
+
+// ─── LEDGER ──────────────────────────────────────────────
+
+model LedgerEntry {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  transactionId String   @map("transaction_id") @db.Uuid
+  accountId     String   @map("account_id") @db.Uuid
+  direction     String   @db.VarChar(10)
+  amount        Decimal  @db.Decimal(18, 2)
+  currencyCode  String   @map("currency_code") @db.Char(3)
+  balanceAfter  Decimal? @map("balance_after") @db.Decimal(18, 2)
+  entrySequence Int      @map("entry_sequence")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  transaction Transaction    @relation(fields: [transactionId], references: [id])
+  account     Account        @relation(fields: [accountId], references: [id])
+  currency    ConfigCurrency @relation(fields: [currencyCode], references: [code])
+  snapshots   AccountBalanceSnapshot[]
+
+  @@unique([transactionId, entrySequence])
+  @@index([accountId, createdAt])
+  @@map("ledger_entries")
+  @@schema("ledger")
+}
+
+model AccountBalanceSnapshot {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId         String   @map("account_id") @db.Uuid
+  availableBalance  Decimal  @default(0) @map("available_balance") @db.Decimal(18, 2)
+  accountingBalance Decimal  @default(0) @map("accounting_balance") @db.Decimal(18, 2)
+  currencyCode      String   @map("currency_code") @db.Char(3)
+  calculatedAt      DateTime @default(now()) @map("calculated_at") @db.Timestamptz(6)
+  ledgerEntryId     String?  @map("ledger_entry_id") @db.Uuid
+
+  account     Account        @relation(fields: [accountId], references: [id])
+  currency    ConfigCurrency @relation(fields: [currencyCode], references: [code])
+  ledgerEntry LedgerEntry?   @relation(fields: [ledgerEntryId], references: [id])
+
+  @@map("account_balance_snapshots")
+  @@schema("ledger")
+}
+
+// ─── CARDS ───────────────────────────────────────────────
+
+model VirtualCard {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  accountId     String    @map("account_id") @db.Uuid
+  maskedNumber  String    @map("masked_number") @db.VarChar(24)
+  cardToken     String    @unique @map("card_token") @db.VarChar(180)
+  statusDomain  String    @default("VIRTUAL_CARD") @map("status_domain") @db.VarChar(60)
+  statusCode    String    @default("ACTIVE") @map("status_code") @db.VarChar(60)
+  spendingLimit Decimal?  @map("spending_limit") @db.Decimal(18, 2)
+  currencyCode  String?   @map("currency_code") @db.Char(3)
+  issuedAt      DateTime  @default(now()) @map("issued_at") @db.Timestamptz(6)
+  blockedAt     DateTime? @map("blocked_at") @db.Timestamptz(6)
+
+  user     User            @relation(fields: [userId], references: [id])
+  account  Account         @relation(fields: [accountId], references: [id])
+  currency ConfigCurrency? @relation(fields: [currencyCode], references: [code])
+  events   CardEvent[]
+
+  @@map("virtual_cards")
+  @@schema("cards")
+}
+
+model CardEvent {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cardId    String   @map("card_id") @db.Uuid
+  eventType String   @map("event_type") @db.VarChar(80)
+  reason    String?  @db.VarChar(180)
+  createdBy String?  @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  card    VirtualCard @relation(fields: [cardId], references: [id])
+  creator User?       @relation(fields: [createdBy], references: [id])
+
+  @@map("card_events")
+  @@schema("cards")
+}
+
+// ─── PAYMENTS ────────────────────────────────────────────
+
+model QrPaymentRequest {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  transactionId String?   @map("transaction_id") @db.Uuid
+  merchantName  String    @map("merchant_name") @db.VarChar(160)
+  qrPayloadHash String   @map("qr_payload_hash") @db.VarChar(64)
+  amount        Decimal   @db.Decimal(18, 2)
+  currencyCode  String    @map("currency_code") @db.Char(3)
+  statusDomain  String    @default("QR_PAYMENT") @map("status_domain") @db.VarChar(60)
+  statusCode    String    @default("PENDING") @map("status_code") @db.VarChar(60)
+  expiresAt     DateTime? @map("expires_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  transaction Transaction?   @relation(fields: [transactionId], references: [id])
+  currency    ConfigCurrency @relation(fields: [currencyCode], references: [code])
+
+  @@map("qr_payment_requests")
+  @@schema("payments")
+}
+
+model PaymentReceipt {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  transactionId   String   @unique @map("transaction_id") @db.Uuid
+  receiptNumber   String   @unique @map("receipt_number") @db.VarChar(60)
+  storedObjectId  String?  @map("stored_object_id") @db.Uuid
+  issuedAt        DateTime @default(now()) @map("issued_at") @db.Timestamptz(6)
+
+  transaction  Transaction  @relation(fields: [transactionId], references: [id])
+  storedObject StoredObject? @relation(fields: [storedObjectId], references: [id])
+
+  @@map("payment_receipts")
+  @@schema("payments")
+}
+
+// ─── NOTIFICATIONS ───────────────────────────────────────
+
+model NotificationEvent {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  channel      String    @db.VarChar(40)
+  templateCode String    @map("template_code") @db.VarChar(80)
+  subject      String?   @db.VarChar(180)
+  payload      Json?
+  statusDomain String    @default("NOTIFICATION") @map("status_domain") @db.VarChar(60)
+  statusCode   String    @default("PENDING") @map("status_code") @db.VarChar(60)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  sentAt       DateTime? @map("sent_at") @db.Timestamptz(6)
+
+  user        User          @relation(fields: [userId], references: [id])
+  emailEvents EmailEvent[]
+
+  @@index([userId, statusCode, createdAt])
+  @@map("notification_events")
+  @@schema("notifications")
+}
+
+model EmailEvent {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  notificationEventId String   @map("notification_event_id") @db.Uuid
+  provider            String   @default("RESEND") @db.VarChar(80)
+  providerMessageId   String?  @map("provider_message_id") @db.VarChar(180)
+  recipient           String   @db.Citext
+  statusCode          String   @map("status_code") @db.VarChar(60)
+  errorMessage        String?  @map("error_message")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  notificationEvent NotificationEvent @relation(fields: [notificationEventId], references: [id])
+
+  @@map("email_events")
+  @@schema("notifications")
+}
+
+// ─── RISK ────────────────────────────────────────────────
+
+model RiskRule {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String   @unique @db.VarChar(80)
+  description String   @db.VarChar(240)
+  severity    String   @db.VarChar(20)
+  enabled     Boolean  @default(true)
+  config      Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  riskEvents RiskEvent[]
+
+  @@map("risk_rules")
+  @@schema("risk")
+}
+
+model RiskEvent {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String?  @map("user_id") @db.Uuid
+  transactionId String?  @map("transaction_id") @db.Uuid
+  ruleId        String?  @map("rule_id") @db.Uuid
+  eventType     String   @map("event_type") @db.VarChar(80)
+  severity      String   @db.VarChar(20)
+  decision      String   @db.VarChar(60)
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user        User?        @relation(fields: [userId], references: [id])
+  transaction Transaction? @relation(fields: [transactionId], references: [id])
+  rule        RiskRule?    @relation(fields: [ruleId], references: [id])
+
+  @@map("risk_events")
+  @@schema("risk")
+}
+
+model RiskScore {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String?  @map("user_id") @db.Uuid
+  transactionId String?  @map("transaction_id") @db.Uuid
+  score         Decimal  @db.Decimal(6, 2)
+  decision      String   @db.VarChar(60)
+  modelVersion  String?  @map("model_version") @db.VarChar(80)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user        User?        @relation(fields: [userId], references: [id])
+  transaction Transaction? @relation(fields: [transactionId], references: [id])
+
+  @@map("risk_scores")
+  @@schema("risk")
+}
+
+// ─── AUDIT ───────────────────────────────────────────────
+
+model AuditEvent {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorUserId   String?  @map("actor_user_id") @db.Uuid
+  eventType     String   @map("event_type") @db.VarChar(100)
+  entityType    String?  @map("entity_type") @db.VarChar(80)
+  entityId      String?  @map("entity_id") @db.Uuid
+  correlationId String   @map("correlation_id") @db.Uuid
+  result        String   @db.VarChar(40)
+  ipAddress     String?  @map("ip_address") @db.Inet
+  userAgent     String?  @map("user_agent")
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  actor        User?         @relation(fields: [actorUserId], references: [id])
+  adminActions AdminAction[]
+
+  @@index([entityType, entityId, createdAt])
+  @@map("audit_events")
+  @@schema("audit")
+}
+
+// ─── ADMIN ───────────────────────────────────────────────
+
+model AdminAction {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adminUserId      String   @map("admin_user_id") @db.Uuid
+  actionType       String   @map("action_type") @db.VarChar(100)
+  targetEntityType String?  @map("target_entity_type") @db.VarChar(80)
+  targetEntityId   String?  @map("target_entity_id") @db.Uuid
+  auditEventId     String?  @map("audit_event_id") @db.Uuid
+  reason           String?  @db.VarChar(240)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  adminUser  User        @relation(fields: [adminUserId], references: [id])
+  auditEvent AuditEvent? @relation(fields: [auditEventId], references: [id])
+
+  @@map("admin_actions")
+  @@schema("admin")
+}

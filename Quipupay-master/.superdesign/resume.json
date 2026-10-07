@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "targets": {
+    "admin-web:/": {
+      "targetKind": "new-ui",
+      "projectId": "8c709b24-d492-481a-8401-9593125df95f",
+      "activeDraftId": "e8fe4c56-996b-44dd-bcad-2a27c5c1458e",
+      "designSystemPath": ".superdesign/design-system.md",
+      "referenceIds": [
+        "mobile-assets-images-quipupay-wordmark.png"
+      ],
+      "brandAssets": {
+        "logo": {
+          "assetKey": "mobile-assets-images-quipupay-wordmark.png",
+          "url": "https://vgbujcuwptvheqijyjbe.supabase.co/storage/v1/object/public/hmac-uploads/projects/8c709b24-d492-481a-8401-9593125df95f/brand-assets/mobile-assets-images-quipupay-wordmark.png/quipupay-wordmark.png",
+          "sourcePath": "mobile/assets/images/quipupay-wordmark.png"
+        }
+      },
+      "contextFiles": [
+        ".superdesign/design-system.md",
+        ".superdesign/init/theme.md",
+        "docs/superpowers/specs/2026-09-09-auditoria-panel-administrativo-design.md"
+      ],
+      "fingerprints": {
+        ".superdesign/design-system.md": "3d397d9895801b13768078f193c8004217d55eeb763bf6d53f2164496c7de6d2",
+        ".superdesign/init/theme.md": "379233f40505b749e8791598b0b5eea6b2bcfbe02159bc28fb7760d9bd985fff",
+        "docs/superpowers/specs/2026-09-09-auditoria-panel-administrativo-design.md": "fbca31bb61433751d4728bcb8b55490ea198e8c774cd257852f8baa8f13a455e"
+      },
+      "components": [],
+      "drafts": {
+        "e8fe4c56-996b-44dd-bcad-2a27c5c1458e": {
+          "title": "Quipupay Control - Resumen de Auditoría",
+          "visualDirection": "light operational ledger",
+          "currentVersion": 1
+        }
+      },
+      "updatedAt": "2026-09-10T01:15:27.162Z"
+    }
+  }
+}

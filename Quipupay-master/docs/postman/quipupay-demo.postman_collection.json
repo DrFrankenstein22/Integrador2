@@ -1,0 +1,638 @@
+{
+  "info": {
+    "_postman_id": "d5d9fb60-4d3c-4a61-9b8b-quipupay-demo",
+    "name": "Quipupay - Demo API y Auditoria",
+    "description": "Coleccion para presentar el backend Quipupay en local. Flujo recomendado: Health -> Productos -> Identidad (DNI/OTP) -> KYC -> Registrar usuario -> Login -> Elevar a AUDITOR con el SQL indicado en la descripcion de la carpeta 06 -> Cuentas y movimientos -> Admin - Auditoria. Variables iniciales: baseUrl=http://localhost:3005/api/v1, dni=12345678, phone=999999999, pin=135790. Para el mobile usa la IP LAN de la PC como baseUrl. Credenciales externas (RENIEC, S3, Rekognition, Resend, SMS) no son necesarias para el flujo feliz porque el backend cae a proveedores mock cuando esas variables de entorno no estan configuradas (KYC_PROVIDER=mock, sin SMS_PROVIDER, etc).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3005/api/v1", "type": "string" },
+    { "key": "dni", "value": "12345678", "type": "string" },
+    { "key": "phone", "value": "999999999", "type": "string" },
+    { "key": "email", "value": "auditor@test.local", "type": "string" },
+    { "key": "pin", "value": "135790", "type": "string" },
+    { "key": "firstName", "value": "Juan", "type": "string" },
+    { "key": "lastName", "value": "Perez", "type": "string" },
+    { "key": "deviceId", "value": "postman-demo-device-0001", "type": "string" },
+    { "key": "productCode", "value": "AHORROS", "type": "string" },
+    { "key": "accessToken", "value": "", "type": "string" },
+    { "key": "userId", "value": "", "type": "string" },
+    { "key": "accountId", "value": "", "type": "string" },
+    { "key": "movementId", "value": "", "type": "string" },
+    { "key": "phoneOtpChallengeId", "value": "", "type": "string" },
+    { "key": "phoneOtpCode", "value": "", "type": "string" },
+    { "key": "emailOtpChallengeId", "value": "", "type": "string" },
+    { "key": "emailOtpCode", "value": "", "type": "string" },
+    { "key": "kycSessionKey", "value": "", "type": "string" },
+    { "key": "livenessChallengeId", "value": "", "type": "string" },
+    { "key": "livenessNonce", "value": "", "type": "string" },
+    { "key": "auditEventId", "value": "", "type": "string" },
+    { "key": "loginEventId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "01 - Salud y catalogo",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+          }
+        },
+        {
+          "name": "Catalogo de productos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/products", "host": ["{{baseUrl}}"], "path": ["products"] }
+          }
+        },
+        {
+          "name": "Detalle de producto",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/products/{{productCode}}", "host": ["{{baseUrl}}"], "path": ["products", "{{productCode}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Identidad (RENIEC y OTP)",
+      "description": "Consultar DNI requiere APIPERU_TOKEN configurado en el backend; si no esta configurado devuelve 503 y puedes seguir el flujo con firstName/lastName ya cargados en las variables. El OTP de SMS se devuelve en la respuesta como devCode mientras SMS_PROVIDER no este configurado (modo demo); el OTP de correo se envia de verdad via Resend, asi que su codigo hay que copiarlo manualmente a emailOtpCode.",
+      "item": [
+        {
+          "name": "Consultar DNI (RENIEC)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/identity/dni/{{dni}}", "host": ["{{baseUrl}}"], "path": ["identity", "dni", "{{dni}}"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "if (pm.response.code === 200) {",
+                "  const json = pm.response.json();",
+                "  if (json.names) pm.collectionVariables.set('firstName', json.names);",
+                "  if (json.paternalSurname) pm.collectionVariables.set('lastName', json.paternalSurname);",
+                "}",
+                "pm.test('Respuesta esperada', function () { pm.expect([200, 404, 503, 502]).to.include(pm.response.code); });"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Solicitar OTP de celular",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"{{phone}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/identity/otp", "host": ["{{baseUrl}}"], "path": ["identity", "otp"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('OTP solicitado', function () { pm.response.to.have.status(201); });",
+                "const json = pm.response.json();",
+                "if (json.challengeId) pm.collectionVariables.set('phoneOtpChallengeId', json.challengeId);",
+                "if (json.devCode) pm.collectionVariables.set('phoneOtpCode', json.devCode);"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Verificar OTP de celular",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeId\": \"{{phoneOtpChallengeId}}\",\n  \"code\": \"{{phoneOtpCode}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/identity/otp/verify", "host": ["{{baseUrl}}"], "path": ["identity", "otp", "verify"] }
+          }
+        },
+        {
+          "name": "Solicitar OTP de correo",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/identity/email-otp", "host": ["{{baseUrl}}"], "path": ["identity", "email-otp"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "if (pm.response.code === 201) {",
+                "  const json = pm.response.json();",
+                "  if (json.challengeId) pm.collectionVariables.set('emailOtpChallengeId', json.challengeId);",
+                "}",
+                "pm.test('Respuesta esperada', function () { pm.expect([201, 503]).to.include(pm.response.code); });"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Verificar OTP de correo",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeId\": \"{{emailOtpChallengeId}}\",\n  \"code\": \"{{emailOtpCode}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/identity/email-otp/verify", "host": ["{{baseUrl}}"], "path": ["identity", "email-otp", "verify"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - KYC (verificacion de identidad)",
+      "description": "Con KYC_PROVIDER sin configurar (o = mock) el backend usa proveedores simulados, asi que Subir documento y Subir selfie funcionan con archivos de prueba cualquiera. Adjunta los archivos manualmente en la pestana Body > form-data de cada request antes de enviarlo (Postman no puede adjuntarlos por scripting).",
+      "item": [
+        {
+          "name": "Iniciar sesion KYC",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dni\": \"{{dni}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/kyc/session", "host": ["{{baseUrl}}"], "path": ["kyc", "session"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "if (pm.response.code === 201 || pm.response.code === 200) {",
+                "  const json = pm.response.json();",
+                "  if (json.sessionKey) pm.collectionVariables.set('kycSessionKey', json.sessionKey);",
+                "}"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Obtener challenge de liveness",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sessionKey\": \"{{kycSessionKey}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/kyc/challenge", "host": ["{{baseUrl}}"], "path": ["kyc", "challenge"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "if (pm.response.code === 201 || pm.response.code === 200) {",
+                "  const json = pm.response.json();",
+                "  if (json.challengeId) pm.collectionVariables.set('livenessChallengeId', json.challengeId);",
+                "  if (json.nonce) pm.collectionVariables.set('livenessNonce', json.nonce);",
+                "}"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Subir documento (DNI)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "sessionKey", "value": "{{kycSessionKey}}", "type": "text" },
+                { "key": "frontStraight", "type": "file", "src": [] },
+                { "key": "frontTilt", "type": "file", "src": [] },
+                { "key": "backStraight", "type": "file", "src": [] },
+                { "key": "backTilt", "type": "file", "src": [] }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/kyc/document", "host": ["{{baseUrl}}"], "path": ["kyc", "document"] }
+          }
+        },
+        {
+          "name": "Subir selfie (liveness)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "sessionKey", "value": "{{kycSessionKey}}", "type": "text" },
+                { "key": "challengeId", "value": "{{livenessChallengeId}}", "type": "text" },
+                { "key": "nonce", "value": "{{livenessNonce}}", "type": "text" },
+                { "key": "videoDurationMs", "value": "4000", "type": "text" },
+                { "key": "stepTimingsMs", "value": "[900,900,900,900]", "type": "text" },
+                { "key": "device", "value": "{}", "type": "text" },
+                { "key": "video", "type": "file", "src": [] },
+                { "key": "frames", "type": "file", "src": [] },
+                { "key": "neutralFrame", "type": "file", "src": [] }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/kyc/selfie", "host": ["{{baseUrl}}"], "path": ["kyc", "selfie"] }
+          }
+        },
+        {
+          "name": "Consultar resultado KYC",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/kyc/result/{{kycSessionKey}}", "host": ["{{baseUrl}}"], "path": ["kyc", "result", "{{kycSessionKey}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Registro y autenticacion",
+      "item": [
+        {
+          "name": "Registrar usuario de demo",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dni\": \"{{dni}}\",\n  \"phone\": \"{{phone}}\",\n  \"firstName\": \"{{firstName}}\",\n  \"lastName\": \"{{lastName}}\",\n  \"email\": \"{{email}}\",\n  \"password\": \"{{pin}}\",\n  \"device\": {\n    \"deviceId\": \"{{deviceId}}\",\n    \"platform\": \"postman\",\n    \"appVersion\": \"demo\"\n  }\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/register", "host": ["{{baseUrl}}"], "path": ["register"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "if (pm.response.code === 201 || pm.response.code === 200) {",
+                "  const json = pm.response.json();",
+                "  if (json.user && json.user.id) pm.collectionVariables.set('userId', json.user.id);",
+                "}",
+                "pm.test('Registro procesado', function () { pm.expect([200, 201, 409]).to.include(pm.response.code); });"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Login y guardar token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dni\": \"{{dni}}\",\n  \"password\": \"{{pin}}\",\n  \"device\": {\n    \"deviceId\": \"{{deviceId}}\",\n    \"platform\": \"postman\",\n    \"appVersion\": \"demo\"\n  }\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/login", "host": ["{{baseUrl}}"], "path": ["login"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test('Login correcto', function () { pm.response.to.have.status(200); });",
+                "const json = pm.response.json();",
+                "pm.collectionVariables.set('accessToken', json.accessToken);",
+                "if (json.user && json.user.id) pm.collectionVariables.set('userId', json.user.id);"
+              ]
+            }
+          }]
+        }
+      ]
+    },
+    {
+      "name": "05 - Cuentas y movimientos",
+      "item": [
+        {
+          "name": "Abrir cuenta demo",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productCode\": \"{{productCode}}\",\n  \"currency\": \"PEN\",\n  \"alias\": \"Cuenta demo auditoria\",\n  \"acceptedContract\": true,\n  \"pin\": \"{{pin}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/accounts", "host": ["{{baseUrl}}"], "path": ["accounts"] }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "if (pm.response.code === 201 || pm.response.code === 200) {",
+                "  const json = pm.response.json();",
+                "  const id = json.id || (json.account && json.account.id);",
+                "  if (id) pm.collectionVariables.set('accountId', id);",
+                "}",
+                "pm.test('Solicitud procesada', function () { pm.expect([200, 201, 409, 422]).to.include(pm.response.code); });"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Activar cuenta (deposito inicial)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pin\": \"{{pin}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/accounts/{{accountId}}/activate", "host": ["{{baseUrl}}"], "path": ["accounts", "{{accountId}}", "activate"] }
+          }
+        },
+        {
+          "name": "Listar mis cuentas",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/accounts", "host": ["{{baseUrl}}"], "path": ["accounts"] }
+          }
+        },
+        {
+          "name": "Detalle de cuenta",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/accounts/{{accountId}}", "host": ["{{baseUrl}}"], "path": ["accounts", "{{accountId}}"] }
+          }
+        },
+        {
+          "name": "Sembrar movimientos demo",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/accounts/{{accountId}}/demo-movements", "host": ["{{baseUrl}}"], "path": ["accounts", "{{accountId}}", "demo-movements"] }
+          }
+        },
+        {
+          "name": "Movimientos de la cuenta",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/accounts/{{accountId}}/movements?type=all&limit=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["accounts", "{{accountId}}", "movements"],
+              "query": [
+                { "key": "type", "value": "all" },
+                { "key": "from", "value": "", "disabled": true },
+                { "key": "to", "value": "", "disabled": true },
+                { "key": "q", "value": "", "disabled": true },
+                { "key": "cursor", "value": "", "disabled": true },
+                { "key": "limit", "value": "25" }
+              ]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "if (pm.response.code === 200) {",
+                "  const json = pm.response.json();",
+                "  const items = json.items || json.data || [];",
+                "  if (items[0] && items[0].id) pm.collectionVariables.set('movementId', items[0].id);",
+                "}"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Comprobante de movimiento",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/movements/{{movementId}}", "host": ["{{baseUrl}}"], "path": ["movements", "{{movementId}}"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 - Auditoria administrativa",
+      "description": "Requiere que el usuario tenga el rol AUDITOR o ADMIN. Ejecuta antes este SQL en PostgreSQL si recibes 403: INSERT INTO auth.user_roles (user_id, role_id) SELECT u.id, r.id FROM users.users u JOIN auth.roles r ON r.code = 'AUDITOR' WHERE u.dni = '12345678' ON CONFLICT DO NOTHING; -- luego vuelve a hacer login para renovar el token con el nuevo rol.",
+      "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }] },
+      "item": [
+        {
+          "name": "Mi identidad administrativa",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/admin/me", "host": ["{{baseUrl}}"], "path": ["admin", "me"] }
+          }
+        },
+        {
+          "name": "Resumen de auditoria",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/audit/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "audit", "summary"],
+              "query": [
+                { "key": "from", "value": "", "disabled": true },
+                { "key": "to", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Eventos de auditoria",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/audit/events?source=audit&limit=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "audit", "events"],
+              "query": [
+                { "key": "source", "value": "audit" },
+                { "key": "eventType", "value": "", "disabled": true },
+                { "key": "result", "value": "", "disabled": true },
+                { "key": "actorUserId", "value": "", "disabled": true },
+                { "key": "entityType", "value": "", "disabled": true },
+                { "key": "entityId", "value": "", "disabled": true },
+                { "key": "correlationId", "value": "", "disabled": true },
+                { "key": "from", "value": "", "disabled": true },
+                { "key": "to", "value": "", "disabled": true },
+                { "key": "cursor", "value": "", "disabled": true },
+                { "key": "limit", "value": "25" }
+              ]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "if (pm.response.code === 200) {",
+                "  const json = pm.response.json();",
+                "  const items = json.items || json.data || [];",
+                "  if (items[0] && items[0].id) pm.collectionVariables.set('auditEventId', items[0].id);",
+                "}"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Eventos de login",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/audit/events?source=login&limit=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "audit", "events"],
+              "query": [
+                { "key": "source", "value": "login" },
+                { "key": "limit", "value": "25" }
+              ]
+            }
+          },
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "if (pm.response.code === 200) {",
+                "  const json = pm.response.json();",
+                "  const items = json.items || json.data || [];",
+                "  if (items[0] && items[0].id) pm.collectionVariables.set('loginEventId', items[0].id);",
+                "}"
+              ]
+            }
+          }]
+        },
+        {
+          "name": "Detalle de evento de auditoria",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/admin/audit/events/audit/{{auditEventId}}", "host": ["{{baseUrl}}"], "path": ["admin", "audit", "events", "audit", "{{auditEventId}}"] }
+          }
+        },
+        {
+          "name": "Detalle de evento de login",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/admin/audit/events/login/{{loginEventId}}", "host": ["{{baseUrl}}"], "path": ["admin", "audit", "events", "login", "{{loginEventId}}"] }
+          }
+        },
+        {
+          "name": "Usuarios para revision",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/users?limit=25",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "users"],
+              "query": [
+                { "key": "query", "value": "", "disabled": true },
+                { "key": "cursor", "value": "", "disabled": true },
+                { "key": "limit", "value": "25" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Actividad del usuario demo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/admin/users/{{userId}}/activity?limit=25", "host": ["{{baseUrl}}"], "path": ["admin", "users", "{{userId}}", "activity"], "query": [{ "key": "limit", "value": "25" }] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 - Observabilidad (demo APM, solo dev)",
+      "description": "Bloqueado automaticamente en produccion (NODE_ENV=production): el controller ni siquiera se registra y ademas DemoEnabledGuard responde 403 como segundo candado. Util para mostrar en clase New Relic APM con latencia, errores y carga de BD a proposito.",
+      "item": [
+        {
+          "name": "Latencia simulada",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/demo/apm/latency?ms=300&jitter=400",
+              "host": ["{{baseUrl}}"],
+              "path": ["demo", "apm", "latency"],
+              "query": [
+                { "key": "ms", "value": "300" },
+                { "key": "jitter", "value": "400" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Error manejado (400)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/demo/apm/error/handled", "host": ["{{baseUrl}}"], "path": ["demo", "apm", "error", "handled"] }
+          }
+        },
+        {
+          "name": "Error no manejado (500)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/demo/apm/error/unhandled", "host": ["{{baseUrl}}"], "path": ["demo", "apm", "error", "unhandled"] }
+          }
+        },
+        {
+          "name": "Consulta lenta a la BD",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/demo/apm/slow-query?seconds=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["demo", "apm", "slow-query"],
+              "query": [{ "key": "seconds", "value": "1" }]
+            }
+          }
+        },
+        {
+          "name": "Rafaga de transacciones simuladas",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/demo/apm/burst?n=30",
+              "host": ["{{baseUrl}}"],
+              "path": ["demo", "apm", "burst"],
+              "query": [{ "key": "n", "value": "30" }]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

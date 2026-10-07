@@ -1,0 +1,32 @@
+# Build outputs
+target/
+build/
+out/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Local/runtime
+.env
+.env.*
+!.env.example
+
+# Node/runtime artifacts from local tooling
+node_modules/
+outputs/
+.superpowers/
+
+# Local planning drafts and private context
+CONTEXTO_PROYECTO_QUIPUPAY.md
+contexto IA/
+.firecrawl/
+*.pem
+*.tmp
+*.bak
+
+# OS
+Thumbs.db
+.DS_Store
+backend/dist/
